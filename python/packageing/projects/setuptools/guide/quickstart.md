@@ -1,5 +1,7 @@
 # Quickstart
 
+## Installation
+
 You can install the latest version of setuptools using pip:
 
 ```
@@ -65,4 +67,66 @@ install_requires =
     requests
     importlib-metadata; python_version<"3.10"
 ```
+
+```py
+from setuptools import setup
+
+setup(
+    name='mypackage',
+    version='0.0.1',
+    install_requires=[
+        'requests',
+        'importlib-metadata; python_version<"3.10"',
+    ],
+)
+```
+
+Finally, you will need to organize your Python code to make it ready for distributing into something that looks like the following (optional files marked with #):
+
+```
+mypackage
+├── pyproject.toml  # and/or setup.cfg/setup.py (depending on the configuration method)
+|   # README.rst or README.md (a nice description of your package)
+|   # LICENCE (properly chosen license information, e.g. MIT, BSD-3, GPL-3, MPL-2, etc...)
+└── mypackage
+    ├── __init__.py
+    └── ... (other Python files)
+```
+
+With build installed in your system, you can then run:
+
+```
+python -m build
+```
+
+You now have your distribution ready (e.g. a tar.gz file and a .whl file in the dist directory), which you can upload to PyPI!
+
+Of course, before you release your project to PyPI, you’ll want to add a bit more information to help people find or learn about your project. And maybe your project will have grown by then to include a few dependencies, and perhaps some data files and scripts. In the next few sections, we will walk through the additional but essential information you need to specify to properly package your project.
+
+## Overview
+
+### Package Discovery
+
+For projects that follow a simple directory structure, setuptools should be able to automatically detect all packages and namespaces.
+
+However, complex projects might include additional folders and supporting files that not necessarily should be distributed (or that can confuse setuptools auto discovery algorithm).
+
+Therefore, setuptools provides a convenient way to customize which packages should be distributed and in which directory they should be found, as shown in the example below:
+
+```py
+from setuptools import setup, find_packages  # or find_namespace_packages
+
+setup(
+    # ...
+    packages=find_packages(
+        # All keyword arguments below are optional:
+        where='src',  # '.' by default
+        include=['mypackage*'],  # ['*'] by default
+        exclude=['mypackage.tests'],  # empty by default
+    ),
+    # ...
+)
+```
+
+When you pass the above information, alongside other necessary information, setuptools walks through the directory specified in where (defaults to .) and filters the packages it can find following the include patterns (defaults to *), then it removes those that match the exclude patterns (defaults to empty) and returns a list of Python packages.
 
