@@ -611,11 +611,66 @@ print(torch.ops.aten.add.Tensor._schema.is_mutable)
 print(torch.ops.aten.add_.Tensor._schema.is_mutable)
 ```
 
-By default, the environment in which you want to run the exported graph should support all ~2000 of these operators. However, you can use the following API on the exported program if your specific environment is only able to support a subset of the ~2000 operators.
+By default, the environment in which you want to run the exported graph should support all ~2000 of these operators.
 
+However, you can use the following API on the exported program if your specific environment is only able to support a subset of the ~2000 operators.
 
+通常情况下，你想要运行 exported graph 的环境需要支持所有这些 2000 个 op
 
+但是，如果你的环境仅仅只能支持一个子集，可以使用下面的 API
 
+```py
+def run_decompositions(
+    self: ExportedProgram,
+    decomposition_table: Optional[Dict[torch._ops.OperatorBase, Callable]]
+) -> ExportedProgram
+```
+
+`run_decompositions` takes in a decomposition table, which is a mapping of operators to a function specifying how to reduce, or decompose, that operator into an equivalent sequence of other ATen operators.
+
+The default decomposition table for `run_decompositions` is the [Core ATen decomposition table](https://github.com/pytorch/pytorch/blob/b460c3089367f3fadd40aa2cb3808ee370aa61e1/torch/_decomp/__init__.py#L252) which will decompose the all ATen operators to the Core ATen Operator Set which consists of only ~180 operators.
+
+```py
+class M(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear = torch.nn.Linear(3, 4)
+
+    def forward(self, x):
+        return self.linear(x)
+
+ep = export(M(), (torch.randn(2, 3),))
+print(ep.graph)
+
+core_ir_ep = ep.run_decompositions()
+print(core_ir_ep.graph)
+```
+
+Notice that after running run_decompositions the `torch.ops.aten.t.default` operator, which is not part of the Core ATen Opset, has been replaced with `torch.ops.aten.permute.default` which is part of the Core ATen Opset.
+
+Most ATen operators already have decompositions, which are located [here](https://github.com/pytorch/pytorch/blob/b460c3089367f3fadd40aa2cb3808ee370aa61e1/torch/_decomp/decompositions.py).
+
+If you would like to use some of these existing decomposition functions, you can pass in a list of operators you would like to decompose to the [get_decompositions](https://github.com/pytorch/pytorch/blob/b460c3089367f3fadd40aa2cb3808ee370aa61e1/torch/_decomp/__init__.py#L191) function, which will return a decomposition table using existing decomposition implementations.
+
+```py
+class M(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear = torch.nn.Linear(3, 4)
+
+    def forward(self, x):
+        return self.linear(x)
+
+ep = export(M(), (torch.randn(2, 3),))
+print(ep.graph)
+
+from torch._decomp import get_decompositions
+decomp_table = get_decompositions([torch.ops.aten.t.default, torch.ops.aten.transpose.int])
+core_ir_ep = ep.run_decompositions(decomp_table)
+print(core_ir_ep.graph)
+```
+
+If there is no existing decomposition function for an ATen operator that you would like to decompose, feel free to send a pull request into PyTorch implementing the decomposition!
 
 ## ExportDB
 
