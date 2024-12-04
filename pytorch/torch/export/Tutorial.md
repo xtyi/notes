@@ -171,7 +171,24 @@ Although torch.export shares components with torch.compile, the key limitation o
 
 A graph break is necessary in cases such as:
 
-data-dependent control flow
+- data-dependent control flow
+
+```py
+class Bad1(torch.nn.Module):
+    def forward(self, x):
+        if x.sum() > 0:
+            return torch.sin(x)
+        return torch.cos(x)
+
+import traceback as tb
+try:
+    export(Bad1(), (torch.randn(3, 3),))
+except Exception:
+    tb.print_exc()
+```
+
+
+
 
 
 ## Custom Ops
