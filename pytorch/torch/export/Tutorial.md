@@ -167,7 +167,16 @@ Other attributes of interest in ExportedProgram include:
 
 # Graph Break
 
-Although torch.export shares components with torch.compile, the key limitation of torch.export, especially when compared to torch.compile, is that it does not support graph breaks. This is because handling graph breaks involves interpreting the unsupported operation with default Python evaluation, which is incompatible with the export use case. Therefore, in order to make your model code compatible with torch.export, you will need to modify your code to remove graph breaks.
+Although torch.export shares components with torch.compile, the key limitation of torch.export, especially when compared to torch.compile, is that it does not support graph breaks.
+
+This is because handling graph breaks involves interpreting the unsupported operation with default Python evaluation, which is incompatible with the export use case. Therefore, in order to make your model code compatible with torch.export, you will need to modify your code to remove graph breaks.
+
+尽管 torch.export 和 torch.compile 使用相同的组件, torch.export 的关键限制是不支持 graph break
+
+这是因为处理 graph break 涉及到使用 Python 解释执行不支持的操作，这和 export 的使用常见是不兼容的
+
+因此，为了使你的模型代码兼容 torch.export，你需要去修改代码移除 graph break
+
 
 A graph break is necessary in cases such as:
 
@@ -187,9 +196,361 @@ except Exception:
     tb.print_exc()
 ```
 
+- accessing tensor data with .data
+
+```py
+class Bad2(torch.nn.Module):
+    def forward(self, x):
+        x.data[0, 0] = 3
+        return x
+
+try:
+    export(Bad2(), (torch.randn(3, 3),))
+except Exception:
+    tb.print_exc()
+```
+
+- calling unsupported functions (such as many built-in functions)
+
+```py
+class Bad3(torch.nn.Module):
+    def forward(self, x):
+        x = x + 1
+        return x + id(x)
+
+try:
+    export(Bad3(), (torch.randn(3, 3),))
+except Exception:
+    tb.print_exc()
+```
+
+- unsupported Python language features (e.g. throwing exceptions, match statements)
+
+```py
+class Bad4(torch.nn.Module):
+    def forward(self, x):
+        try:
+            x = x + 1
+            raise RuntimeError("bad")
+        except:
+            x = x + 2
+        return x
+
+try:
+    export(Bad4(), (torch.randn(3, 3),))
+except Exception:
+    tb.print_exc()
+```
+
+## Non-Strict Export
+
+To trace the program, torch.export uses TorchDynamo, a byte code analysis engine, to symbolically analyze the Python code and build a graph based on the results.
+
+This analysis allows torch.export to provide stronger guarantees about safety, but not all Python code is supported, causing these graph breaks.
+
+To address this issue, in PyTorch 2.3, we introduced a new mode of exporting called non-strict mode, where we trace through the program using the Python interpreter executing it exactly as it would in eager mode, allowing us to skip over unsupported Python features. This is done through adding a `strict=False` flag.
+
+Looking at some of the previous examples which resulted in graph breaks:
+
+- Accessing tensor data with .data now works correctly
+
+```py
+class Bad2(torch.nn.Module):
+    def forward(self, x):
+        x.data[0, 0] = 3
+        return x
+
+bad2_nonstrict = export(Bad2(), (torch.randn(3, 3),), strict=False)
+print(bad2_nonstrict.module()(torch.ones(3, 3)))
+```
+
+- Calling unsupported functions (such as many built-in functions) traces
+
+through, but in this case, id(x) gets specialized as a constant integer in the graph. This is because id(x) is not a tensor operation, so the operation is not recorded in the graph.
+
+```py
+class Bad3(torch.nn.Module):
+    def forward(self, x):
+        x = x + 1
+        return x + id(x)
+
+bad3_nonstrict = export(Bad3(), (torch.randn(3, 3),), strict=False)
+print(bad3_nonstrict)
+print(bad3_nonstrict.module()(torch.ones(3, 3)))
+```
+
+Unsupported Python language features (such as throwing exceptions, match statements) now also get traced through.
+
+```py
+class Bad4(torch.nn.Module):
+    def forward(self, x):
+        try:
+            x = x + 1
+            raise RuntimeError("bad")
+        except:
+            x = x + 2
+        return x
+
+bad4_nonstrict = export(Bad4(), (torch.randn(3, 3),), strict=False)
+print(bad4_nonstrict.module()(torch.ones(3, 3)))
+```
+
+However, there are still some features that require rewrites to the original module:
+
+## Control Flow Ops
+
+torch.export actually does support data-dependent control flow.
+
+But these need to be expressed using control flow ops. For example, we can fix the control flow example above using the cond op, like so:
+
+```py
+from functorch.experimental.control_flow import cond
+
+class Bad1Fixed(torch.nn.Module):
+    def forward(self, x):
+        def true_fn(x):
+            return torch.sin(x)
+        def false_fn(x):
+            return torch.cos(x)
+        return cond(x.sum() > 0, true_fn, false_fn, [x])
+
+exported_bad1_fixed = export(Bad1Fixed(), (torch.randn(3, 3),))
+print(exported_bad1_fixed.module()(torch.ones(3, 3)))
+print(exported_bad1_fixed.module()(-torch.ones(3, 3)))
+```
+
+There are limitations to cond that one should be aware of:
+- The predicate (i.e. x.sum() > 0) must result in a boolean or a single-element tensor.
+- The operands (i.e. [x]) must be tensors.
+- The branch function (i.e. true_fn and false_fn) signature must match with the operands and they must both return a single tensor with the same metadata (for example, dtype, shape, etc.).
+- Branch functions cannot mutate input or global variables.
+- Branch functions cannot access closure variables, except for self if the function is defined in the scope of a method.
+
+## Constraints/Dynamic Shapes
+
+Ops can have different specializations/behaviors for different tensor shapes, so by default, `torch.export` requires inputs to ExportedProgram to have the same shape as the respective example inputs given to the initial `torch.export.export()` call.
+
+If we try to run the ExportedProgram in the example below with a tensor with a different shape, we get an error:
+
+我们运行 ExportedProgram 传入的 tensor 需要与 torch.export 时候的 tensor 形状相同, 否则会报错
+
+```py
+class MyModule2(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.lin = torch.nn.Linear(100, 10)
+
+    def forward(self, x, y):
+        return torch.nn.functional.relu(self.lin(x + y), inplace=True)
+
+mod2 = MyModule2()
+exported_mod2 = export(mod2, (torch.randn(8, 100), torch.randn(8, 100)))
+
+try:
+    exported_mod2.module()(torch.randn(10, 100), torch.randn(10, 100))
+except Exception:
+    tb.print_exc()
+```
+
+We can relax this constraint using the `dynamic_shapes` argument of torch.export.export(), which allows us to specify, using `torch.export.Dim`, which dimensions of the input tensors are dynamic.
+
+我们可以使用 `dynamic_shapes` 参数放宽这个限制，该参数允许我们指定 input tensor 的哪个维度是动态的(使用 `torch.export.Dim`)
+
+For each tensor argument of the input callable, we can specify a mapping from the dimension to a torch.export.Dim.
+
+A torch.export.Dim is essentially a named symbolic integer with optional minimum and maximum bounds.
+
+Then, the format of torch.export.export()'s dynamic_shapes argument is a mapping from the input callable’s tensor argument names, to dimension –> dim mappings as described above.
+
+If there is no torch.export.Dim given to a tensor argument’s dimension, then that dimension is assumed to be static.
+
+The first argument of torch.export.Dim is the name for the symbolic integer, used for debugging.
+
+Then we can specify an optional minimum and maximum bound (inclusive). Below, we show a usage example.
+
+In the example below, our input inp1 has an unconstrained first dimension, but the size of the second dimension must be in the interval [4, 18].
+
+```py
+from torch.export import Dim
+
+inp1 = torch.randn(10, 10, 2)
+
+class DynamicShapesExample1(torch.nn.Module):
+    def forward(self, x):
+        x = x[:, 2:]
+        return torch.relu(x)
+
+inp1_dim0 = Dim("inp1_dim0")
+inp1_dim1 = Dim("inp1_dim1", min=4, max=18)
+dynamic_shapes1 = {
+    "x": {0: inp1_dim0, 1: inp1_dim1},
+}
+
+exported_dynamic_shapes_example1 = export(DynamicShapesExample1(), (inp1,), dynamic_shapes=dynamic_shapes1)
+
+print(exported_dynamic_shapes_example1.module()(torch.randn(5, 5, 2)))
+
+# dim1 小于指定范围
+try:
+    exported_dynamic_shapes_example1.module()(torch.randn(8, 1, 2))
+except Exception:
+    tb.print_exc()
+
+# dim1 大于指定范围
+try:
+    exported_dynamic_shapes_example1.module()(torch.randn(8, 20, 2))
+except Exception:
+    tb.print_exc()
+
+# dim2 不是动态的，与 export 时的维度值不同
+try:
+    exported_dynamic_shapes_example1.module()(torch.randn(8, 8, 3))
+except Exception:
+    tb.print_exc()
+```
+
+Note that if our example inputs to torch.export do not satisfy the constraints given by dynamic_shapes, then we get an error.
+
+We can enforce that equalities between dimensions of different tensors by using the same torch.export.Dim object, for example, in matrix multiplication:
+
+可以指定 Dim 之间的约束关系
+
+```py
+inp2 = torch.randn(4, 8)
+inp3 = torch.randn(8, 2)
+
+class DynamicShapesExample2(torch.nn.Module):
+    def forward(self, x, y):
+        return x @ y
+
+inp2_dim0 = Dim("inp2_dim0")
+inner_dim = Dim("inner_dim")
+inp3_dim1 = Dim("inp3_dim1")
+
+dynamic_shapes2 = {
+    "x": {0: inp2_dim0, 1: inner_dim},
+    "y": {0: inner_dim, 1: inp3_dim1},
+}
+
+exported_dynamic_shapes_example2 = export(DynamicShapesExample2(), (inp2, inp3), dynamic_shapes=dynamic_shapes2)
+
+print(exported_dynamic_shapes_example2.module()(torch.randn(2, 16), torch.randn(16, 4)))
+
+# inp2 的 dim1 不等于 inp3 的 dim0
+try:
+    exported_dynamic_shapes_example2.module()(torch.randn(4, 8), torch.randn(4, 2))
+except Exception:
+    tb.print_exc()
+```
+
+We can also describe one dimension in terms of other. There are some restrictions to how detailed we can specify one dimension in terms of another, but generally, those in the form of A * Dim + B should work.
+
+```py
+class DerivedDimExample1(torch.nn.Module):
+    def forward(self, x, y):
+        return x + y[1:]
+
+foo = DerivedDimExample1()
+
+x, y = torch.randn(5), torch.randn(6)
+dimx = torch.export.Dim("dimx", min=3, max=6)
+dimy = dimx + 1
+derived_dynamic_shapes1 = ({0: dimx}, {0: dimy})
+
+derived_dim_example1 = export(foo, (x, y), dynamic_shapes=derived_dynamic_shapes1)
+
+print(derived_dim_example1.module()(torch.randn(4), torch.randn(5)))
+
+# 不满足 dimy = dimx + 1
+try:
+    derived_dim_example1.module()(torch.randn(4), torch.randn(6))
+except Exception:
+    tb.print_exc()
 
 
+class DerivedDimExample2(torch.nn.Module):
+    def forward(self, z, y):
+        return z[1:] + y[1::3]
 
+foo = DerivedDimExample2()
+
+z, y = torch.randn(4), torch.randn(10)
+dx = torch.export.Dim("dx", min=3, max=6)
+dz = dx + 1
+dy = dx * 3 + 1
+derived_dynamic_shapes2 = ({0: dz}, {0: dy})
+
+derived_dim_example2 = export(foo, (z, y), dynamic_shapes=derived_dynamic_shapes2)
+print(derived_dim_example2.module()(torch.randn(7), torch.randn(19)))
+```
+
+We can actually use torch.export to guide us as to which dynamic_shapes constraints are necessary.
+
+We can do this by relaxing all constraints (recall that if we do not provide constraints for a dimension, the default behavior is to constrain to the exact shape value of the example input) and letting torch.export error out.
+
+可以让 torch.export 指导我们哪些约束是必须的，我们只需要放宽所有约束，让 torch.export 报错
+
+```py
+inp4 = torch.randn(8, 16)
+inp5 = torch.randn(16, 32)
+
+class DynamicShapesExample3(torch.nn.Module):
+    def forward(self, x, y):
+        if x.shape[0] <= 16:
+            return x @ y[:, :16]
+        return y
+
+dynamic_shapes3 = {
+    "x": {i: Dim(f"inp4_dim{i}") for i in range(inp4.dim())},
+    "y": {i: Dim(f"inp5_dim{i}") for i in range(inp5.dim())},
+}
+
+try:
+    export(DynamicShapesExample3(), (inp4, inp5), dynamic_shapes=dynamic_shapes3)
+except Exception:
+    tb.print_exc()
+```
+
+We can see that the error message gives us suggested fixes to our dynamic shape constraints. Let us follow those suggestions (exact suggestions may differ slightly):
+
+```py
+def suggested_fixes():
+    inp4_dim1 = Dim('shared_dim')
+    # suggested fixes below
+    inp4_dim0 = Dim('inp4_dim0', max=16)
+    inp5_dim1 = Dim('inp5_dim1', min=17)
+    inp5_dim0 = inp4_dim1
+    # end of suggested fixes
+    return {
+        "x": {0: inp4_dim0, 1: inp4_dim1},
+        "y": {0: inp5_dim0, 1: inp5_dim1},
+    }
+
+dynamic_shapes3_fixed = suggested_fixes()
+exported_dynamic_shapes_example3 = export(DynamicShapesExample3(), (inp4, inp5), dynamic_shapes=dynamic_shapes3_fixed)
+print(exported_dynamic_shapes_example3.module()(torch.randn(4, 32), torch.randn(32, 64)))
+```
+
+Note that in the example above, because we constrained the value of `x.shape[0]` in dynamic_shapes_example3, the exported program is sound even though there is a raw `if` statement.
+
+指定约束后，就不会 trace 不满足约束的分支, 因此即使有 if 语句，也不会造成 graph break
+
+If you want to see why torch.export generated these constraints, you can re-run the script with the environment variable `TORCH_LOGS=dynamic,dynamo`, or use `torch._logging.set_logs`.
+
+```py
+import logging
+torch._logging.set_logs(dynamic=logging.INFO, dynamo=logging.INFO)
+exported_dynamic_shapes_example3 = export(DynamicShapesExample3(), (inp4, inp5), dynamic_shapes=dynamic_shapes3_fixed)
+
+# reset to previous values
+torch._logging.set_logs(dynamic=logging.WARNING, dynamo=logging.WARNING)
+```
+
+We can view an ExportedProgram’s symbolic shape ranges using the range_constraints field.
+
+```py
+print(exported_dynamic_shapes_example3.range_constraints)
+```
 
 ## Custom Ops
 
