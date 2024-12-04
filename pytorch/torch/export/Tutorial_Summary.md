@@ -21,6 +21,8 @@ torch.export
   - 修改模型: 使用 cond op 代替 if statement
 - 默认将约束限制在 input tensor 的形状
   - 使用符号放宽约束，以支持动态shape
+- 支持自定义算子
+
 
 符号
 - 创建符号需要指定一个名字(用于调试), 范围(约束)

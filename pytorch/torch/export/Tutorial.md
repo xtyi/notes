@@ -577,6 +577,42 @@ def custom_op_meta(x):
 
 - Call the custom op from the code you want to export using `torch.ops`
 
+```py
+class CustomOpExample(torch.nn.Module):
+    def forward(self, x):
+        x = torch.sin(x)
+        x = torch.ops.my_custom_library.custom_op(x)
+        x = torch.cos(x)
+        return x
+```
+
+Export the code as before
+
+```py
+exported_custom_op_example = export(CustomOpExample(), (torch.randn(3, 3),))
+exported_custom_op_example.graph_module.print_readable()
+print(exported_custom_op_example.module()(torch.randn(3, 3)))
+```
+
+Note in the above outputs that the custom op is included in the exported graph.
+
+And when we call the exported graph as a function, the original custom op is called, as evidenced by the print call.
+
+## Decompositions
+
+The graph produced by torch.export by default returns a graph containing only functional ATen operators.
+
+This functional ATen operator set (or "opset") contains around 2000 operators, all of which are functional, that is, they do not mutate or alias inputs.
+
+You can find a list of all ATen operators [here](https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/native/native_functions.yaml) and you can inspect if an operator is functional by checking `op._schema.is_mutable`, for example:
+
+```py
+print(torch.ops.aten.add.Tensor._schema.is_mutable)
+print(torch.ops.aten.add_.Tensor._schema.is_mutable)
+```
+
+By default, the environment in which you want to run the exported graph should support all ~2000 of these operators. However, you can use the following API on the exported program if your specific environment is only able to support a subset of the ~2000 operators.
+
 
 
 
