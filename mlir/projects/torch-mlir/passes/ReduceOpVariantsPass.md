@@ -52,7 +52,8 @@ struct ReduceOpVariantsPass
     OwningOpRef<ModuleOp> extraLibraryModule =
         ModuleOp::create(UnknownLoc::get(context));
     std::optional<SymbolTable> extraLibraryModuleSymTable = std::nullopt;
-    
+    // 如果 extraLibrary 不为空的话，调用 loadExtraLibrary 加载 extraLibrary, 返回 extraLibraryModule
+    // loadExtraLibrary 的作用就是加载 MLIR 文件
     if (!extraLibrary.empty()) {
       if (failed(loadExtraLibrary(extraLibrary, extraLibraryModule))) {
         emitError(getOperation()->getLoc(),
@@ -96,7 +97,7 @@ struct ReduceOpVariantsPass
           return false;
         }
       }
-      //
+      // 这里判断 op 是否有 value 语义, 如果是 operator 的话, 要调用 operatorOpHasValueSemantics 去 extraLibraryModuleSymTable 找相关函数
       if (op->hasTrait<Torch::OpTrait::HasValueSemantics>() ||
           (isa<OperatorOp>(op) &&
            operatorOpHasValueSemantics(cast<OperatorOp>(op),
@@ -109,15 +110,17 @@ struct ReduceOpVariantsPass
           }
           return true;
         };
+        // 要 operandTypes 和 resultTypes 都具有 value 语义
         return llvm::all_of(op->getOperandTypes(), hasValueSemantics) &&
                llvm::all_of(op->getResultTypes(), hasValueSemantics);
       }
 
-      
+      // 类似 torch.aten.mul_ 这种 op, 会执行原地修改, 该 pass 后不允许出现
       if (op->hasTrait<Torch::OpTrait::IsTrailingUnderscoreInplaceVariant>()) {
         return false;
       }
 
+        // 目前 isSpecializedOperation 返回 true, 所以到这里, 如果 op 是 OperatorOp, 直接返回 false 设置为非法了
       if (isa<OperatorOp>(op) && isSpecializedOperation(cast<OperatorOp>(op))) {
         return false;
       }
