@@ -58,3 +58,34 @@ void TorchConversion::createTorchBackendToStablehloBackendPipeline(
   pm.addPass(createCanonicalizerPass());
 }
 ```
+
+torch-mlir: torch to stablehlo
+
+```cpp
+createConvertTorchToStablehloPass(
+      options.enableStaticShape, options.enableI32Index)
+```
+
+stablehlo: chlo to stablehlo
+
+```cpp
+stablehlo::createChloLegalizeToStablehloPass()
+```
+
+torch-mlir: torch to arith
+
+```cpp
+createConvertTorchToArithPass();
+```
+
+
+
+```cpp
+TorchConversion::createFuncBackendTypeConversionForStablehloPass()
+TorchConversion::createFinalizingBackendTypeConversionForStablehloPass()
+```
+
+
+```cpp
+TorchConversion::createVerifyStablehloBackendContractPass()
+```

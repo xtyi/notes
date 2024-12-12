@@ -48,7 +48,7 @@ These are both being heavily-invested-in by PyTorch core developers, and are gen
 
 现在还没有完全依赖 PyTorch
 
-![alt text](/images/torch-mlir-roadmap-frontend.png)
+![](https://github.com/llvm/torch-mlir/raw/main/docs/images/roadmap_frontend.png)
 
 The primary functional requirement of Torch-MLIR which remains unaddressed by today's incarnation of TorchDynamo and FuncTorch is the support for dynamic shapes. PyTorch core devs are heavily investing in this area, and both TorchDynamo and FuncTorch are being upgraded as PyTorch rolls out its new symbolic shape infrastructure.
 
@@ -81,12 +81,61 @@ As the above efforts progress, we will need to make decisions about how to adopt
 
 These two efforts synergize, but the need for cascaded lowerings is much less if PrimTorch solves the decomposition problem on the PyTorch side.
 
-![alt text](/images/torch-mlir-roadmap-backend.png)
+![](https://raw.githubusercontent.com/llvm/torch-mlir/refs/heads/main/docs/images/roadmap_backend.png)
+
+One of the main blockers for doing cascaded lowerings today is the irregular support for dynamic shapes across TOSA and MHLO. MHLO is much more complete, but the use of `tensor<Nxindex>` to model shapes results in brittleness of the system. A dynamic shape model like that being adopted in TCP (and presumably StableHLO in time) would simplify this. Hence TCP is strategically important for proving out a design for a "dynamically shaped MHLO-like thing" that doesn't have this drawback.
+
+希望后端共享更多代码
 
 ### Tools for advanced AoT deployments
 
+PyTorch's future direction is towards TorchDynamo and FuncTorch, which are tracing-based systems. This means that they inherently struggle to capture control flow and non-tensor computations. Many deployments, especially Ahead-of-Time compiled ones such as for edge, require non-tensor computations. It is extremely costly for people deploying such models to manually stitch together graphs of traced functions with custom per-model code with existing tools, and it is also very error-prone. We are awaiting movement on this front from the PyTorch core team. There is some inspiration from systems like IREE-JAX in the JAX space for how to do this, but ultimately this will depend on what the PyTorch core team decides on for edge deployments. It is our responsibility to stay connected with them and make sure that what they are building suits our needs.
+
+
+
 ### Project Governance / Structure
+
+Torch-MLIR is currently an LLVM Incubator. This has had the advantage of being organizationally close to MLIR Core. However, the long-term direction is likely for Torch-MLIR to live under the PyTorch umbrella, for a few reasons:
+
+- As discussed in the other parts of this document, the long-term direction is for Torch-MLIR to be a quite thin component, with much of the code being obsoleted by infra in PyTorch core.
+
+- The move towards more stable backend output formats will generally reduce variance on the MLIR side. This means that MLIR will be the "more frozen" of the two major dependencies (PyTorch and MLIR).
+
+- We would like Torch-MLIR to be hooked into the PyTorch CI systems, and generally be more tightly integrated with the PyTorch development process (this includes things like packaging as well).
+
+Torch-MLIR 目前归属于 LLVM 项目，但是实际上最好归属于 PyTorch, 因为未来 MLIR 的部分会趋于稳定, 而且 Torch-MLIR 希望集成到 PyTorch 的开发流中
 
 ### Co-design
 
+
+Many users of MLIR are developing advanced hardware or software systems, and often these require information from the frontend beyond what PyTorch provides today. Torch-MLIR should always be a "follower" of the features available in the frontends and backends it connects to. We want to enable co-design, of course, but new features such as quantization, sparsity, distribution, etc. should be viewed from the lens of "the frontend can give us X information, the backend needs Y information -- how do we connect them?".
+
+To satisfy those needs, we want to focus on existing extensibility mechanisms in the frontend rather than inventing new ones. We intend to explore using existing frontend concepts, such as custom ops, to enable this co-design.
+
+If it proves to be absolutely necessary to add new concepts to the frontend (e.g. new data types), it should be considered very carefully since supporting such features is a major scope increase to the Torch-MLIR project. It is likely to be better done in a separate project, with a carefully thought-out integration with Torch-MLIR that avoids putting the maintenance burden on the side of Torch-MLIR for the exploratory new frontend concept.
+
+Torch-MLIR 应始终是其所连接的前端和后端可用功能的"追随者"
+
+Torch-MLIR 关注的是如何将前端现有的功能连接到后端, 而不会添加一些前端没有的功能
+
+但是用户会有很多更激进的需求
+
+为了满足这些需求，我们希望将重点放在前端现有的可扩展性机制上，而不是发明新的机制。
+
+我们打算探索使用现有的前端概念（如自定义操作）来实现这种协同设计。
+
+
+### LazyTensorCore support in Torch-MLIR
+
+Today, Torch-MLIR supports LazyTensorCore. But as mentioned here, on the 1-2yr time horizon LTC will be more an implementation detail under TorchDynamo for users that already have compilers written using LTC. That is, LTC is basically just a way to convert a TorchDynamo FX graph into LTC graphs, for users that have toolchains written against LTC graphs. But that won't make much technical sense for Torch-MLIR, because we convert to MLIR in the end no matter what. That is, in the future going TorchDynamo FX graph -> LTC Graph -> MLIR can just be replaced by the direct TorchDynamo FX graph -> MLIR path. So in the 1-2yr time horizon, LTC will not make technical sense in Torch-MLIR.
+
+There will still be non-technical blockers, such as if end-users have device='lazy' hardcoded into their code. That will require a migration plan for current LTC-based toolchains onto TorchDynamo. This migration will improve the end-user experience since TorchDynamo is more seamless, but it is a end-user-impacting migration nonetheless and we will want to phase it appropriately with the community.
+
+LazyTensorCore 之后在 Torch-MLIR 中不会存在
+
+### End-to-end (E2E) testing
+
+Torch-MLIR currently maintains its own test suite with hundreds of end-to-end tests that verify the correctness and completeness of our op lowerings. These tests are tedious to write, and also sometimes hit corners of PyTorch's API that aren't usually reachable by user code. PyTorch already has an end-to-end op test suite and we should just plug into it. Here is an example of doing so. Even better, it would be great if TorchDynamo/PyTorch 2.0 directly provided a way to plug into this.
+
+Additionally, we can leverage the pytorch-jit-paritybench to verify our end-to-end correctness on real models.
 
