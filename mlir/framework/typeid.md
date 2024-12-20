@@ -64,7 +64,7 @@ public:
 TypeID() : TypeID(get<void>()) {}
 ```
 
-默认构造函数, 调用另一个私有构造函数
+默认构造函数, 这里会委托编译器自动生成的拷贝构造函数, 传入一个 void 的 TypeID 对象
 
 
 ```cpp
@@ -91,6 +91,46 @@ static TypeID get();
 template <template <typename> class Trait>
 static TypeID get();
 ```
+
+实现
+
+```cpp
+template <typename T>
+TypeID TypeID::get() {
+  return detail::TypeIDResolver<T>::resolveTypeID();
+}
+
+template <template <typename> class Trait>
+TypeID TypeID::get() {
+  // An empty class used to simplify the use of Trait types.
+  struct Empty {};
+  return TypeID::get<Trait<Empty>>();
+}
+```
+
+
+```cpp
+/// Methods for supporting PointerLikeTypeTraits.
+const void *getAsOpaquePointer() const {
+  return static_cast<const void *>(storage);
+}
+static TypeID getFromOpaquePointer(const void *pointer) {
+  return TypeID(reinterpret_cast<const Storage *>(pointer));
+}
+```
+
+```cpp
+/// Enable hashing TypeID.
+friend ::llvm::hash_code hash_value(TypeID id);
+
+/// Enable hashing TypeID.
+inline ::llvm::hash_code hash_value(TypeID id) {
+  return DenseMapInfo<const TypeID::Storage *>::getHashValue(id.storage);
+}
+```
+
+
+
 
 
 ## TypeIDAllocator
@@ -237,8 +277,10 @@ public:
   using is_fully_resolved = llvm::is_detected<is_fully_resolved_trait, U>;
 
   static TypeID resolveTypeID() {
+    // 断言  T is_fully_resolved
     static_assert(is_fully_resolved<T>::value,
                   "TypeID::get<> requires the complete definition of `T`");
+    // 获取 T 的类型名, 调用 FallbackTypeIDResolver 的 registerImplicitTypeID 方法
     static TypeID id = registerImplicitTypeID(llvm::getTypeName<T>());
     return id;
   }
