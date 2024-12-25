@@ -35,7 +35,7 @@ cmake -G Ninja ../llvm
     -DLLVM_ENABLE_LLD=ON
     -DLLVM_CCACHE_BUILD=ON
     -DMLIR_ENABLE_BINDINGS_PYTHON=ON
-    -DPython3_EXECUTABLE="/home/xtyi/miniforge3/envs/torch-mlir-dev/bin/python"
+    -DPython3_EXECUTABLE="$CONDA_PREFIX/bin/python"
 ```
 
 再构建 torch-mlir
