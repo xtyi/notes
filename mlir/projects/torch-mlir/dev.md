@@ -15,9 +15,11 @@ git submodule update --init --progress --depth=1
 创建一个虚拟环境
 
 ```
+conda create -n torch-customop-dev python=3.11
+conda activate torch-customop-dev
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-python -m pip install -r torchvision-requirements.txt
+pip install tabulate expecttest
 ```
 
 out-of-tree 构建
@@ -45,11 +47,11 @@ cmake -GNinja -Bbuild .
     -DLLVM_TARGETS_TO_BUILD=host
     -DCMAKE_BUILD_TYPE=RelWithDebInfo
     -DLLVM_ENABLE_ASSERTIONS=ON
+    -DCMAKE_C_COMPILER=clang-18
+    -DCMAKE_CXX_COMPILER=clang++-18
     -DPython3_FIND_VIRTUALENV=ONLY
     -DMLIR_DIR="$LLVM_INSTALL_DIR/lib/cmake/mlir/" 
     -DLLVM_DIR="$LLVM_INSTALL_DIR/lib/cmake/llvm/" 
     -DMLIR_ENABLE_BINDINGS_PYTHON=ON
-    -DPython3_EXECUTABLE="/home/xtyi/miniforge3/envs/torch-mlir-dev/bin/python" 
-    -DCMAKE_C_COMPILER=clang-18
-    -DCMAKE_CXX_COMPILER=clang++-18
+    -DPython3_EXECUTABLE="$CONDA_PREFIX/bin/python" 
 ```

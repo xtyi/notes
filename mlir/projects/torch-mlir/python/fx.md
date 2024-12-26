@@ -35,7 +35,9 @@ def export_and_import(
     enable_ir_printing: bool = False,
     **kwargs,
 ):
+    # 创建一个 MLIR Context
     context = ir.Context()
+    # 注册 torch dialect
     torch_d.register_dialect(context)
 
     # 如果没有指定 fx_importer，则创建一个
