@@ -88,10 +88,18 @@ class TorchDispatchMode:
         if not hasattr(self, "old_non_infra_dispatch_mode_flags"):
             self.old_non_infra_dispatch_mode_flags: Deque[bool] = deque()  # type: ignore[no-redef]
 
-
+    # 最核心的方法，需要在子类中实现
+    # func: 被拦截的 PyTorch 操作
+    # types: 操作涉及的类型信息
+    # args: 位置参数
+    # kwargs: 关键字参数
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
         raise NotImplementedError
 
+    # 上下文管理器实现
+    # 保存当前的调度模式状态
+    # 设置新的调度模式状态
+    # 将当前模式推入模式栈
     def __enter__(self):
         global _is_in_torch_dispatch_mode
         global _is_in_non_infra_torch_dispatch_mode
@@ -107,6 +115,7 @@ class TorchDispatchMode:
         _push_mode(self)
         return self
 
+    # 上下文管理器实现
     def __exit__(self, exc_type, exc_val, exc_tb):
         mb_dk_or_mode_key = self.__dict__.get("_dispatch_key", None)
         if mb_dk_or_mode_key is None:
@@ -118,14 +127,6 @@ class TorchDispatchMode:
         global _is_in_non_infra_torch_dispatch_mode
         _is_in_non_infra_torch_dispatch_mode = self.old_non_infra_dispatch_mode_flags.pop()
         _pop_mode(mb_dk_or_mode_key)
-
-    @classmethod
-    def push(cls, *args, **kwargs):
-        warnings.warn(
-            "`Mode.push()` is no longer necessary and can be replaced with just `with Mode()`"
-        )
-        instance = cls(*args, **kwargs)
-        return instance
 
     @classmethod
     def is_infra_mode(cls):
