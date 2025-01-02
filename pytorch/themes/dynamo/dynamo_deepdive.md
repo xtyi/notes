@@ -151,21 +151,6 @@ def forward(self, l_x_: torch.Tensor, l_n_: torch.SymInt):
     return (mul,)
 ```
 
-In this case, TORCH_LOGS=graph_code generates two more graphs
-
-```py
-# Graph for n==2 omitted
-
-def forward(self, l_x_: torch.Tensor, l_n_: torch.SymInt):
-    # File: a.py:5, code: y = x ** 2
-    y = l_x_ ** 2
-
-    # File: a.py:7, code: return (n + 1) * y
-    add = l_n_ + 1
-    mul = add * y
-    return (mul,)
-```
-
 ```py
 def forward(self, l_x_: torch.Tensor, l_n_: torch.SymInt):
     # File: a.py:5, code: y = x ** 2
@@ -217,6 +202,12 @@ It should be clear that it is the decorator `@torch.compile`’s job to install 
 ## Implementing CPython in Python
 
 So, we are back in the Python world. We have the bytecode of a function, and all the context necessary to execute it. In particular, we have landed at `_convert_frame_assert`. This is the function that the decorator `torch.compile` returns! We get to this function from `_dynamo.optimize`. The decorator `torch.compile` is just a nice API around `_dynamo.optimize`.
+
+我们回到 Python 世界，我们有一个 function 的字节码，和所有执行它所必要的上下文
+
+特别，我们已经登陆在 `_convert_frame_assert` 函数
+
+
 
 Before getting into implementing a Python interpreter, we want to define an IR. In particular, we want to wrap all the local and global variables in our own internal classes. This allows us to better track these objects and group together objects that can be treated in the same way to the eyes of Dynamo.
 
