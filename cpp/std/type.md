@@ -12,3 +12,6 @@ std::decay_t 移除引用、const 等修饰符，得到基础类型
 
 ## decltype()
 
+
+## std::decay_t
+
