@@ -1,30 +1,41 @@
 # broadcast
 
-```
-// 示例 1：将 1x3 广播到 4x3
-%input = ... : tensor<1x3xf32>
-%init = ... : tensor<4x3xf32>
-%result = linalg.broadcast 
-  ins(%input : tensor<1x3xf32>) 
-  outs(%init : tensor<4x3xf32>) 
-  dimensions = [0]
+Broadcast the input into the given shape by adding dimensions.
 
-// 示例 2：将 1x1x3 广播到 2x4x3
-%input = ... : tensor<1x1x3xf32>
-%init = ... : tensor<2x4x3xf32>
-%result = linalg.broadcast 
-  ins(%input : tensor<1x1x3xf32>) 
-  outs(%init : tensor<2x4x3xf32>) 
-  dimensions = [0, 1]
-
-// 示例 3：将标量广播到向量
-%input = ... : tensor<1xf32>
-%init = ... : tensor<4xf32>
-%result = linalg.broadcast 
-  ins(%input : tensor<1xf32>) 
-  outs(%init : tensor<4xf32>) 
-  dimensions = [0]
 ```
+%bcast = linalg.broadcast
+    ins(%input:tensor<16xf32>)
+    outs(%init:tensor<16x64xf32>)
+    dimensions = [1]
+```
+
+```
+%broadcast = linalg.broadcast
+      ins(%input : tensor<2xf32>)
+      outs(%init1 : tensor<2x4xf32>)
+      dimensions = [1]
+```
+
+
+```
+%broadcast = linalg.broadcast
+      ins(%input : tensor<2x4x5xf32>)
+      outs(%init1 : tensor<1x2x3x4x5x6xf32>)
+      dimensions = [0, 2, 5]
+```
+
+```
+linalg.broadcast ins(%input: tensor<2x3xf32>) outs(%init: tensor<2x3xf32>) dimensions = []
+```
+
+```
+%broadcast = linalg.broadcast
+      ins(%input : tensor<?x?x5xf32>)
+      outs(%init1 : tensor<1x?x3x?x5x6xf32>)
+      dimensions = [0, 2, 5]
+```
+
+
 
 输出张量必须预先分配（通过 outs 操作数提供）
 
