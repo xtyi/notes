@@ -1,7 +1,7 @@
 # tips
 
 
-# squash
+## squash
 
 当前有两个分支 master 和 dev
 
