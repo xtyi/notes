@@ -1,0 +1,6 @@
+# remote
+
+```
+git remote -v
+```
+

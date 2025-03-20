@@ -2,6 +2,10 @@
 
 
 
+```
+git checkout -b <local-branch> <remote-repo>/<branch>
+```
+
 
 
 `git checkout .` 会撤销对所有已修改但尚未暂存(unstaged)的文件的更改
@@ -23,3 +27,7 @@
 
 
 在新的 Git 版本中（自 Git 2.23 起），推荐使用 `git restore .` 来代替 `git checkout .`，因为新的命令更加明确，专门用于恢复工作区的更改。
+
+
+
+
