@@ -3,13 +3,7 @@
 ## Books
 
 
-[A Course in Machine Learning](http://ciml.info/)
-- 讲解机器学习
-- 电子版
 
-[Neural Networks and Deep Learning](http://neuralnetworksanddeeplearning.com/)
-- 讲解深度学习
-- 电子版
 
 [Introduction to deep learning](https://mitpress.mit.edu/9780262039512/introduction-to-deep-learning/)
 - 深度学习
