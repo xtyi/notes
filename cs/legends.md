@@ -21,6 +21,13 @@ Jeff Dean
 - BitTable
 - Protobuf
 
+Chris Lattner
+- LLVM
+- MLIR
+- Swift
+- OpenCL
+
+
 Richard Stallman
 
 John Carmack
